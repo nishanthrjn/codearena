@@ -1,0 +1,9 @@
+﻿FROM gcc:13-bookworm
+
+RUN groupadd -r sandbox && useradd -r -g sandbox sandbox
+RUN apt-get update \
+    && apt-get purge -y curl wget netcat-openbsd || true \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+USER sandbox

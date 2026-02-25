@@ -1,0 +1,89 @@
+﻿# Placeholder for docker-compose.yml
+version: "3.9"
+
+# IMPORTANT: copy .env.example to .env and fill in secrets before running.
+# All secrets are required – the stack will refuse to start if any are missing.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: codearena
+      POSTGRES_USER: codearena
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../scripts/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U codearena" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # M-3: require password even in dev; set REDIS_PASSWORD in .env
+    command: redis-server --save "" --appendonly no --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      interval: 5s
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=codearena;Username=codearena;Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD}"
+      Jwt__Key: "${JWT_KEY:?JWT_KEY is required (min 32 chars)}"
+      Jwt__Issuer: "codearena-api"
+      Jwt__Audience: "codearena-web"
+      GitHub__ClientId: "${GITHUB_CLIENT_ID:?GITHUB_CLIENT_ID is required}"
+      GitHub__ClientSecret: "${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required}"
+      GitHub__RedirectUri: "http://localhost:5000/api/auth/callback"
+      AllowedOrigins: "http://localhost:5173"
+      ASPNETCORE_ENVIRONMENT: "Development"
+    ports:
+      - "5000:5000"
+    volumes:
+      - dp_keys:/app/dp-keys
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  runner:
+    build:
+      context: ../apps/runner
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD}"
+      Api__HubUrl: "http://api:5000/hubs/execution"
+      # C-3: No fallback — stack fails loudly if RUNNER_TOKEN is not set
+      Api__RunnerToken: "${RUNNER_TOKEN:?RUNNER_TOKEN is required}"
+      Sandbox__TimeoutSeconds: 2
+      Sandbox__MemoryLimitBytes: 268435456
+      Sandbox__MaxOutputBytes: 1048576
+      Sandbox__MaxTestCases: 10
+    volumes:
+      # Docker-in-Docker: runner needs to spawn sibling containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/codearena-workspaces:/tmp/codearena-workspaces
+    depends_on:
+      redis: { condition: service_healthy }
+    # IMPORTANT: runner has elevated access to Docker socket
+    # Lock down who can deploy the runner service
+
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "http://localhost:5000"
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  dp_keys:

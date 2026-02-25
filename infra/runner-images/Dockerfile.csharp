@@ -1,0 +1,11 @@
+﻿FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+RUN groupadd -r sandbox && useradd -r -g sandbox sandbox
+RUN apt-get purge -y curl wget && rm -rf /var/lib/apt/lists/*
+
+# dotnet-script for single-file C# execution
+RUN dotnet tool install -g dotnet-script
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+WORKDIR /workspace
+USER sandbox

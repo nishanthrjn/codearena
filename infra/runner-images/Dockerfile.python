@@ -1,0 +1,16 @@
+﻿FROM python:3.12-slim
+
+# Create a non-root user
+RUN groupadd -r sandbox && useradd -r -g sandbox -d /workspace -s /bin/false sandbox
+
+# Remove network tools to prevent any bypass
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && which curl && rm -f /usr/bin/curl || true \
+    && which wget && rm -f /usr/bin/wget || true
+
+# Install only safe packages
+RUN pip install --no-cache-dir numpy==1.26.4
+
+WORKDIR /workspace
+USER sandbox
