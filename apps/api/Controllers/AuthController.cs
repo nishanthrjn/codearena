@@ -12,6 +12,7 @@ public class AuthController(IAuthService auth, IConfiguration cfg, ILogger<AuthC
     private const int MaxParamLength = 512;
 
     [HttpGet("login")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth")]
     public IActionResult Login([FromQuery] string? returnUrl = "/")
     {
         var clientId    = cfg["GitHub:ClientId"]!;
@@ -30,7 +31,7 @@ public class AuthController(IAuthService auth, IConfiguration cfg, ILogger<AuthC
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,   // Lax required for cross-site OAuth redirects
-            Secure   = Request.IsHttps,
+            Secure   = true,
             MaxAge   = TimeSpan.FromMinutes(10)
         });
 
@@ -110,8 +111,20 @@ public class AuthController(IAuthService auth, IConfiguration cfg, ILogger<AuthC
     private static bool IsAllowedReturnUrl(string? url, IEnumerable<string> allowedOrigins)
     {
         if (string.IsNullOrWhiteSpace(url)) return false;
+
+        // H-1: block path-injection characters that some parsers treat as authority separators
+        if (url.Contains('\\') || url.Contains("%2f", StringComparison.OrdinalIgnoreCase)
+                                || url.Contains("%5c", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         // Must be a relative path starting with / (no scheme = not an open redirect)
-        if (url.StartsWith('/') && !url.StartsWith("//")) return true;
+        // Reject // which is scheme-relative (i.e., //evil.com)
+        if (url.StartsWith('/') && !url.StartsWith("//"))
+        {
+            // Only allow safe path characters
+            return url.All(c => char.IsLetterOrDigit(c) || c is '/' or '-' or '_' or '.' or '~' or '?' or '=' or '&' or '#');
+        }
+
         // Or an absolute URL whose origin is explicitly whitelisted
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return allowedOrigins.Any(o => string.Equals(o.TrimEnd('/'),
@@ -119,7 +132,13 @@ public class AuthController(IAuthService auth, IConfiguration cfg, ILogger<AuthC
         return false;
     }
 
-    private Guid GetUserId() =>
-        Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                   ?? User.FindFirst("sub")?.Value!);
+    // M-2: null-safe; throws UnauthorizedAccessException (caught by ExceptionMiddleware) instead of NullReferenceException
+    private Guid GetUserId()
+    {
+        var val = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+               ?? User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(val, out var id))
+            throw new UnauthorizedAccessException("Invalid user identity in token.");
+        return id;
+    }
 }

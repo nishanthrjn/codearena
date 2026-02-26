@@ -22,6 +22,16 @@ public class GitHubController(IGitHubService gh) : ControllerBase
         return Ok(new { commitSha = sha });
     }
 
-    private Guid UserId =>
-        Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    // M-2: null-safe; throws UnauthorizedAccessException → 401 via ExceptionMiddleware
+    private Guid UserId
+    {
+        get
+        {
+            var val = User.FindFirst("sub")?.Value
+                   ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(val, out var id))
+                throw new UnauthorizedAccessException("Invalid user identity in token.");
+            return id;
+        }
+    }
 }

@@ -94,6 +94,13 @@ cd scripts
 bash build-runner-images.sh
 ```
 
+**On Windows (PowerShell):**
+
+```powershell
+cd scripts
+.\build-runner-images.ps1
+```
+
 This builds 4 Docker images:
 
 - `codearena-runner-python:latest`

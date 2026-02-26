@@ -5,6 +5,7 @@ using System.Text.Json;
 using CodeArena.Api.Data;
 using CodeArena.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 
 namespace CodeArena.Api.Services;
 
@@ -18,19 +19,38 @@ public class GitHubService(
     AppDbContext db,
     ITokenEncryptionService enc,
     IHttpClientFactory httpFactory,
+    IConnectionMultiplexer redis,
     ILogger<GitHubService> log) : IGitHubService
 {
+    // M-5: cache key for per-user repo list, TTL 60s to reduce GitHub API calls
+    private static string RepoCacheKey(Guid userId) => $"codearena:repos:{userId}";
     public async Task<List<GitHubRepoDto>> ListReposAsync(Guid userId, CancellationToken ct = default)
     {
+        // M-5: serve from Redis cache if available (TTL 60s)
+        var db2 = redis.GetDatabase();
+        var cached = await db2.StringGetAsync(RepoCacheKey(userId));
+        if (cached.HasValue)
+        {
+            var cachedList = System.Text.Json.JsonSerializer.Deserialize<List<GitHubRepoDto>>(cached!);
+            if (cachedList is not null) return cachedList;
+        }
+
         var client = await BuildClientAsync(userId, ct);
         var resp = await client.GetAsync("https://api.github.com/user/repos?per_page=100&sort=updated", ct);
         resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.EnumerateArray().Select(r => new GitHubRepoDto(
+        var repos = doc.RootElement.EnumerateArray().Select(r => new GitHubRepoDto(
             r.GetProperty("full_name").GetString() ?? "",
             r.GetProperty("default_branch").GetString() ?? "main",
             r.GetProperty("private").GetBoolean())).ToList();
+
+        // Cache result for 60 seconds
+        await db2.StringSetAsync(RepoCacheKey(userId),
+            System.Text.Json.JsonSerializer.Serialize(repos),
+            TimeSpan.FromSeconds(60));
+
+        return repos;
     }
 
     public async Task<string> PushSnippetAsync(Guid userId, PushToGitHubRequest req, CancellationToken ct = default)
@@ -113,7 +133,17 @@ public class GitHubService(
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
                    ?? throw new UnauthorizedAccessException("User not found");
-        var token = enc.Decrypt(user.EncryptedToken);
+        string token;
+        try
+        {
+            token = enc.Decrypt(user.EncryptedToken);
+        }
+        catch (TokenDecryptionException)
+        {
+            // L-4: Data Protection keys have rotated or token is corrupted — force re-auth
+            throw new UnauthorizedAccessException(
+                "GitHub token could not be decrypted. Please disconnect and reconnect your GitHub account.");
+        }
         var client = httpFactory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         client.DefaultRequestHeaders.Add("User-Agent", "CodeArena/1.0");

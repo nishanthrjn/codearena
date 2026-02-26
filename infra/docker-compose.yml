@@ -42,7 +42,9 @@ services:
       GitHub__ClientSecret: "${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required}"
       GitHub__RedirectUri: "http://localhost:5000/api/auth/callback"
       AllowedOrigins: "http://localhost:5173"
-      ASPNETCORE_ENVIRONMENT: "Development"
+      # L-3: Use Production to disable Swagger UI and detailed SignalR errors in compose deployments
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:5000"
     ports:
       - "5000:5000"
     volumes:

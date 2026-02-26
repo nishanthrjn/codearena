@@ -68,3 +68,26 @@ public class CreateSnippetValidator : AbstractValidator<CreateSnippetRequest>
         });
     }
 }
+
+// M-6: Apply the same validation rules to updates so oversized code cannot bypass via PUT
+public class UpdateSnippetValidator : AbstractValidator<UpdateSnippetRequest>
+{
+    private static readonly HashSet<string> ValidLanguages =
+        ["csharp", "python", "javascript", "c", "cpp"];
+
+    public UpdateSnippetValidator()
+    {
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Language).Must(l => ValidLanguages.Contains(l))
+            .WithMessage("Unsupported language. Use: csharp, python, javascript, c, cpp");
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(100_000);
+        RuleFor(x => x.Tags).MaximumLength(500);
+        RuleFor(x => x.TestCases).Must(tc => tc.Count <= 10)
+            .WithMessage("Maximum 10 test cases allowed");
+        RuleForEach(x => x.TestCases).ChildRules(tc =>
+        {
+            tc.RuleFor(t => t.StdIn).MaximumLength(32_768);
+            tc.RuleFor(t => t.Expected).MaximumLength(1_048_576);
+        });
+    }
+}

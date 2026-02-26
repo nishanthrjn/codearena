@@ -12,7 +12,8 @@ namespace CodeArena.Api.Controllers;
 [Authorize]
 public class SnippetsController(
     ISnippetService snippets,
-    IValidator<CreateSnippetRequest> validator,
+    IValidator<CreateSnippetRequest> createValidator,
+    IValidator<UpdateSnippetRequest> updateValidator,  // M-6
     ILogger<SnippetsController> log) : ControllerBase
 {
     [HttpGet]
@@ -29,7 +30,7 @@ public class SnippetsController(
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateSnippetRequest req, CancellationToken ct)
     {
-        var validation = await validator.ValidateAsync(req, ct);
+        var validation = await createValidator.ValidateAsync(req, ct);
         if (!validation.IsValid) return BadRequest(validation.Errors.Select(e => e.ErrorMessage));
         var result = await snippets.CreateAsync(UserId, req, ct);
         return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
@@ -38,6 +39,9 @@ public class SnippetsController(
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateSnippetRequest req, CancellationToken ct)
     {
+        // M-6: validate update requests the same way as create
+        var validation = await updateValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid) return BadRequest(validation.Errors.Select(e => e.ErrorMessage));
         var result = await snippets.UpdateAsync(UserId, id, req, ct);
         return result is null ? NotFound() : Ok(result);
     }
@@ -49,6 +53,16 @@ public class SnippetsController(
         return deleted ? NoContent() : NotFound();
     }
 
-    private Guid UserId =>
-        Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    // M-2: null-safe; throws UnauthorizedAccessException → 401 via ExceptionMiddleware
+    private Guid UserId
+    {
+        get
+        {
+            var val = User.FindFirst("sub")?.Value
+                   ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(val, out var id))
+                throw new UnauthorizedAccessException("Invalid user identity in token.");
+            return id;
+        }
+    }
 }

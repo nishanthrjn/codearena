@@ -1,5 +1,6 @@
 ﻿// Placeholder for Program.cs
 using System.Text;
+using System.Threading.RateLimiting;
 using CodeArena.Api.Data;
 using CodeArena.Api.Hubs;
 using CodeArena.Api.Middleware;
@@ -7,6 +8,7 @@ using CodeArena.Api.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -50,14 +52,16 @@ if (!dpKeysDir.Exists)
 }
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(dpKeysDir)
-    .SetApplicationName("CodeArena");
+    .SetApplicationName("CodeArena")
+    .SetDefaultKeyLifetime(TimeSpan.FromDays(365));
 
 // ── Cookie policy (required for HttpOnly JWT cookie) ─────────────────────────
 builder.Services.AddAntiforgery();
 builder.Services.Configure<CookiePolicyOptions>(o =>
 {
     o.HttpOnly   = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.Always;
-    o.Secure     = CookieSecurePolicy.SameAsRequest;
+    // M-3: Always require Secure flag — HTTPS must be terminated by the reverse proxy in prod
+    o.Secure     = CookieSecurePolicy.Always;
     o.MinimumSameSitePolicy = SameSiteMode.Strict;
 });
 
@@ -76,29 +80,71 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience            = cfg["Jwt:Audience"],
             IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
-        // C-1/H-2: Accept token from HttpOnly cookie (ca_jwt) OR SignalR query string for /hubs/*
+        // H-2: Accept token ONLY from the HttpOnly cookie (ca_jwt).
+        // Cookies are automatically sent on WebSocket upgrades for /hubs/* too,
+        // so no query-string fallback is needed.
         opts.Events = new JwtBearerEvents
         {
             OnMessageReceived = ctx =>
             {
-                // 1. Check HttpOnly cookie first (browser sessions)
                 var cookieToken = ctx.Request.Cookies["ca_jwt"];
                 if (!string.IsNullOrEmpty(cookieToken))
-                {
                     ctx.Token = cookieToken;
-                    return Task.CompletedTask;
-                }
-                // 2. SignalR sends token in query string for /hubs/* endpoints
-                var queryToken = ctx.Request.Query["access_token"];
-                var path       = ctx.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(queryToken) && path.StartsWithSegments("/hubs"))
-                    ctx.Token = queryToken;
                 return Task.CompletedTask;
             }
         };
     });
 
 builder.Services.AddAuthorization();
+
+// ── Rate limiting (M-1) ──────────────────────────────────────────────────────
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // General API limit: 60 req/min per authenticated user (by IP as fallback)
+    opts.AddPolicy("api", ctx =>
+    {
+        var userId = ctx.User?.FindFirst("sub")?.Value
+                  ?? ctx.Connection.RemoteIpAddress?.ToString()
+                  ?? "anon";
+        return RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit          = 60,
+            Window               = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit           = 0
+        });
+    });
+
+    // Stricter limit for execution endpoints: 10 runs/min per user
+    opts.AddPolicy("execution", ctx =>
+    {
+        var userId = ctx.User?.FindFirst("sub")?.Value
+                  ?? ctx.Connection.RemoteIpAddress?.ToString()
+                  ?? "anon";
+        return RateLimitPartition.GetFixedWindowLimiter($"exec:{userId}", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit          = 10,
+            Window               = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit           = 0
+        });
+    });
+
+    // Very strict limit for OAuth login: 10 initiations/min per IP
+    opts.AddPolicy("auth", ctx =>
+    {
+        var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "anon";
+        return RateLimitPartition.GetFixedWindowLimiter($"auth:{ip}", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit          = 10,
+            Window               = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit           = 0
+        });
+    });
+});
 
 // App services
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -151,9 +197,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    // M-3: Enforce HTTPS in production via HSTS
+    app.UseHsts();
+}
 
+app.UseHttpsRedirection();
 app.UseSerilogRequestLogging();
 app.UseCookiePolicy();
+app.UseRateLimiter();   // M-1: rate limiting
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -162,11 +215,12 @@ app.MapControllers();
 app.MapHub<ExecutionHub>("/hubs/execution");
 app.MapHealthChecks("/health");
 
-// Auto-migrate on startup (dev convenience; use proper migration tool in prod)
+// M-4: Only auto-migrate in development; use a migration runner in production CI/CD
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    if (app.Environment.IsDevelopment())
+        db.Database.Migrate();
 }
 
 app.Run();

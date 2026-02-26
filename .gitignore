@@ -89,10 +89,16 @@ docker-compose.override.yml
 # Environment and secrets
 appsettings.Local.json
 appsettings.*.Local.json
+appsettings.Development.json
 *.key
 *.pem
 .env.production.local
 .env.*.local
+# Explicit infra secrets — NEVER commit these
+infra/.env
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Logs
 logs/
@@ -141,3 +147,18 @@ dist-ssr/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# .NET / C#
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.log
+*.cache
+
+# secrets
+.env
+.env.*
+appsettings.Development.json
+apps/api/appsettings.json
