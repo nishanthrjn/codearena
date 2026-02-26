@@ -1,6 +1,6 @@
 ﻿# ⚡ CodeArena
 
-A **blazing-fast, self-hosted code execution sandbox** — write code in 5 languages, run it in isolated Docker containers, save snippets, and push them directly to GitHub.
+A **blazing-fast, self-hosted code execution sandbox** — write code in any languages, run it in isolated Docker containers, save snippets, and push them directly to GitHub.
 
 ## Features
 
@@ -17,27 +17,27 @@ A **blazing-fast, self-hosted code execution sandbox** — write code in 5 langu
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **API** | ASP.NET Core 8, EF Core 8, Npgsql, SignalR, Serilog, FluentValidation |
-| **Runner** | .NET 8 Worker, StackExchange.Redis, Docker CLI (sibling containers) |
-| **Frontend** | React 18, TypeScript, Vite, Monaco Editor, Zustand, Axios, SignalR JS |
-| **Database** | PostgreSQL 16 |
-| **Cache / Queue** | Redis 7 |
-| **Proxy** | Caddy (prod) / Nginx (alt) |
+| Layer             | Technology                                                            |
+| ----------------- | --------------------------------------------------------------------- |
+| **API**           | ASP.NET Core 8, EF Core 8, Npgsql, SignalR, Serilog, FluentValidation |
+| **Runner**        | .NET 8 Worker, StackExchange.Redis, Docker CLI (sibling containers)   |
+| **Frontend**      | React 18, TypeScript, Vite, Monaco Editor, Zustand, Axios, SignalR JS |
+| **Database**      | PostgreSQL 16                                                         |
+| **Cache / Queue** | Redis 7                                                               |
+| **Proxy**         | Caddy (prod) / Nginx (alt)                                            |
 
 ---
 
 ## Prerequisites
 
-| Tool | Min Version | Notes |
-|------|-------------|-------|
-| **Docker Desktop** | 24+ | Must be running. Enables Docker-in-Docker execution. |
-| **Docker Compose** v2 | bundled with Docker Desktop | Used to start all services |
-| **WSL 2** | — | Required on Windows for Linux containers |
-| **Git** | any | To clone the repo |
-| **.NET 8 SDK** | 8.0 | Only needed to run tests or develop locally without Docker |
-| **Node.js** | 20 LTS | Only needed for local frontend dev without Docker |
+| Tool                  | Min Version                 | Notes                                                      |
+| --------------------- | --------------------------- | ---------------------------------------------------------- |
+| **Docker Desktop**    | 24+                         | Must be running. Enables Docker-in-Docker execution.       |
+| **Docker Compose** v2 | bundled with Docker Desktop | Used to start all services                                 |
+| **WSL 2**             | —                           | Required on Windows for Linux containers                   |
+| **Git**               | any                         | To clone the repo                                          |
+| **.NET 8 SDK**        | 8.0                         | Only needed to run tests or develop locally without Docker |
+| **Node.js**           | 20 LTS                      | Only needed for local frontend dev without Docker          |
 
 ---
 
@@ -81,18 +81,21 @@ RUNNER_TOKEN=<random-shared-secret-between-runner-and-api>
 ### 4. Build the language sandbox images
 
 **On Windows (PowerShell):**
+
 ```powershell
 cd scripts
 .\build-runner-images.ps1
 ```
 
 **On Linux / macOS / WSL:**
+
 ```bash
 cd scripts
 bash build-runner-images.sh
 ```
 
 This builds 4 Docker images:
+
 - `codearena-runner-python:latest`
 - `codearena-runner-node:latest`
 - `codearena-runner-csharp:latest`
@@ -105,12 +108,12 @@ cd infra
 docker compose up --build
 ```
 
-| Service | URL |
-|---------|-----|
-| **Web UI** | http://localhost:5173 |
-| **API** | http://localhost:5000 |
+| Service     | URL                           |
+| ----------- | ----------------------------- |
+| **Web UI**  | http://localhost:5173         |
+| **API**     | http://localhost:5000         |
 | **Swagger** | http://localhost:5000/swagger |
-| **Health** | http://localhost:5000/health |
+| **Health**  | http://localhost:5000/health  |
 
 ---
 
