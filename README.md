@@ -1,30 +1,33 @@
 ﻿# ⚡ CodeArena
 
-A **blazing-fast, self-hosted code execution sandbox** — write code in any languages, run it in isolated Docker containers, save snippets, and push them directly to GitHub.
+CodeArena is a self-hosted code execution sandbox that runs user-submitted code inside isolated Docker containers.
 
-## Features
+The system demonstrates secure execution handling, job queuing, and real-time output streaming.
+
+## Scope
 
 - 🔐 **GitHub OAuth** login with secure HttpOnly JWT cookie session
-- 🐳 **Docker-isolated** sandboxed execution (no network, resource-limited)
-- ⚡ **5 languages**: Python 3, C# (.NET 8), JavaScript (Node.js), C (GCC), C++ 17
+- 🐳 **Docker-isolated** sandboxed execution
+- ⚡ **Multi-languages**: Python 3, C# (.NET 8), JavaScript (Node.js), C (GCC), C++ 17
 - 📝 **Snippet CRUD** with tags and unique slugs per user
 - ✅ **Test cases** — run against multiple stdin/stdout pairs
 - 🔴 **Live output streaming** via SignalR WebSockets
-- 🐙 **Push to GitHub** — commits your snippet files to any of your repos
-- 📊 Swagger UI included in Development mode
+- 🐙 **Push to GitHub** — GitHub repository push integration
+- 📊 **Swagger** - API documentatione
 
 ---
 
 ## Tech Stack
 
-| Layer             | Technology                                                            |
-| ----------------- | --------------------------------------------------------------------- |
-| **API**           | ASP.NET Core 8, EF Core 8, Npgsql, SignalR, Serilog, FluentValidation |
-| **Runner**        | .NET 8 Worker, StackExchange.Redis, Docker CLI (sibling containers)   |
-| **Frontend**      | React 18, TypeScript, Vite, Monaco Editor, Zustand, Axios, SignalR JS |
-| **Database**      | PostgreSQL 16                                                         |
-| **Cache / Queue** | Redis 7                                                               |
-| **Proxy**         | Caddy (prod) / Nginx (alt)                                            |
+| Layer             | Technology                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------|
+| **API**           | ASP.NET Core 8, Entity Framework Core, Npgsql(PostgreSQL), SignalR, Serilog logging, FluentValidation  |
+| **Runner**        | .NET 8 Worker, StackExchange.Redis, Docker container execution, Resource-limited sandbox configuration |
+| **Frontend**      | React 18, TypeScript, Vite, Monaco Editor, Zustand, Axios, SignalR JS                                  |
+| **Database**      | PostgreSQL 16                                                                                          |
+| **Cache / Queue** | Redis 7                                                                                                |
+| **Proxy**         | Caddy (prod) / Nginx (alt) (production)                                                                |
+| **Infrastructure  | PostgreSQL 16, Redis 7, Docker Compose                                                                 |
 
 ---
 
@@ -108,7 +111,7 @@ This builds 4 Docker images:
 - `codearena-runner-csharp:latest`
 - `codearena-runner-c-cpp:latest`
 
-### 5. Start the full stack
+### 5. To Start the full stack
 
 ```bash
 cd infra
@@ -210,22 +213,52 @@ codearena/
 ```
 
 ---
+## Architecture
 
+### API
+- ASP.NET Core 8
+- Entity Framework Core
+- Npgsql (PostgreSQL)
+- FluentValidation
+- SignalR
+- Serilog logging
+
+### Runner
+- .NET Worker Service
+- Redis queue consumption
+- Docker container execution
+- Resource-limited sandbox configuration
+
+### Frontend
+- React 18
+- TypeScript
+- Vite
+- Monaco Editor
+- Zustand state management
+
+### Infrastructure
+- PostgreSQL 16
+- Redis 7
+- Docker Compose
+- Optional Caddy reverse proxy (production)
+
+---
 ## Security Notes
 
 - JWT is stored in an **HttpOnly, Secure, SameSite=Strict** cookie (`ca_jwt`) — never in localStorage
 - GitHub OAuth tokens are encrypted at rest using ASP.NET Core Data Protection
-- Runner sandbox containers run with: `--network=none`, `--read-only`, `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit=100`, memory and CPU quotas
+- Docker containers run with: `--network=none`, `--read-only`, `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit=100`, memory and CPU quotas
 - CSRF is mitigated by SameSite=Strict cookies + CORS allowlist
 - Open-redirect protection in OAuth state parameter
 
 ---
+## Running with Docker
 
-## Production Deployment
-
-```bash
+```
 cd infra
-docker compose -f docker-compose.prod.yml up --build -d
+docker compose up --build
 ```
 
-The production compose file uses Caddy as a TLS-terminating reverse proxy. Edit `infra/caddy/Caddyfile` with your domain.
+Web UI: http://localhost:5173
+
+API: http://localhost:5000
